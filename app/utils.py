@@ -8,53 +8,44 @@ from pytz import timezone
 
 from app.database import db
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Keep track of report statuses in memory
 report_status = {}
 
 def trigger_report_generation():
-    # Generate a unique report ID
     report_id = str(uuid.uuid4())
     report_status[report_id] = "Running"
     logger.info(f"[{report_id}] Report generation started.")
 
     try:
-        # Load data from MongoDB
         logger.info(f"[{report_id}] Fetching data from MongoDB...")
         status_df = pd.DataFrame(list(db.store_status.find()))
         bh_df = pd.DataFrame(list(db.business_hours.find()))
         tz_df = pd.DataFrame(list(db.store_timezones.find()))
         logger.info(f"[{report_id}] Data fetched. {len(status_df)} status rows.")
 
-        # Normalize store_id (convert bytes to readable hex if necessary)
         for df in [status_df, bh_df, tz_df]:
             df['store_id'] = df['store_id'].apply(
                 lambda x: x.hex() if isinstance(x, (bytes, bytearray)) else str(x)
             )
 
-        # Parse timestamps and find the most recent UTC timestamp
         status_df['timestamp_utc'] = pd.to_datetime(status_df['timestamp_utc'], utc=True)
         now_utc = status_df['timestamp_utc'].max()
         logger.info(f"[{report_id}] Latest timestamp in data: {now_utc}")
 
-        # Build business hours mapping for each store
         business_hours = defaultdict(lambda: {i: [("00:00", "23:59")] for i in range(7)})
         for _, row in bh_df.iterrows():
             business_hours[row['store_id']][row['dayOfWeek']] = [
                 (row['start_time_local'], row['end_time_local'])
             ]
 
-        # Build timezone mapping (default to "America/Chicago")
         tz_map = defaultdict(lambda: "America/Chicago")
         for _, row in tz_df.iterrows():
             tz_map[row['store_id']] = row['timezone_str']
 
         result_rows = []
 
-        # Process only first 10 unique stores (for testing/demo purposes)
         store_ids = status_df['store_id'].unique()[:10]
 
         for store_id in store_ids:
@@ -62,38 +53,30 @@ def trigger_report_generation():
             logger.info(f"[{report_id}] Processing store: {store_id}")
 
             try:
-                # Filter data for current store
                 store_data = status_df[status_df['store_id'] == store_id].copy()
                 store_data = store_data.sort_values('timestamp_utc')
 
-                # Convert UTC to store's local timezone
                 tz = timezone(tz_map[store_id])
                 store_data['timestamp_local'] = store_data['timestamp_utc'].dt.tz_convert(tz)
 
-                # Convert status to binary: 1 for active, 0 otherwise
                 store_data['status_bin'] = store_data['status'].apply(lambda x: 1 if x == 'active' else 0)
 
-                # Resample data at 1-minute intervals and forward-fill status
                 store_data.set_index('timestamp_local', inplace=True)
                 store_data = store_data.resample('1min').ffill().reset_index()
 
-                # Add columns for day of the week and local time in HH:MM format
                 store_data['dayOfWeek'] = store_data['timestamp_local'].dt.dayofweek
                 store_data['time'] = store_data['timestamp_local'].dt.strftime('%H:%M')
 
-                # Filter rows that fall within defined business hours
                 def is_within_business_hours(row):
                     hours = business_hours[store_id][row['dayOfWeek']]
                     return any(start <= row['time'] <= end for start, end in hours)
 
                 store_data = store_data[store_data.apply(is_within_business_hours, axis=1)]
 
-                # Define time ranges
                 one_hour_ago = now_utc - timedelta(hours=1)
                 one_day_ago = now_utc - timedelta(days=1)
                 one_week_ago = now_utc - timedelta(days=7)
 
-                # Helper to calculate uptime/downtime metrics
                 def calc_metrics(df, from_time):
                     filtered = df[df['timestamp_local'] >= from_time]
                     up_minutes = filtered['status_bin'].sum()
@@ -101,12 +84,10 @@ def trigger_report_generation():
                     down_minutes = total_minutes - up_minutes
                     return up_minutes, down_minutes
 
-                # Calculate metrics for each time window
                 one_hour_up, one_hour_down = calc_metrics(store_data, one_hour_ago)
                 one_day_up, one_day_down = calc_metrics(store_data, one_day_ago)
                 one_week_up, one_week_down = calc_metrics(store_data, one_week_ago)
 
-                # Store results
                 result_rows.append({
                     "store_id": store_id,
                     "uptime_last_hour(in minutes)": one_hour_up,
@@ -126,7 +107,6 @@ def trigger_report_generation():
 
         logger.info(f"[{report_id}] Finished processing all stores.")
 
-        # Save results as CSV file
         result_df = pd.DataFrame(result_rows)
         filename = f"report_{report_id}.csv"
         filepath = os.path.join("reports", filename)
@@ -134,7 +114,6 @@ def trigger_report_generation():
         result_df.to_csv(filepath, index=False)
         logger.info(f"[{report_id}] Report written to {filepath}")
 
-        # Insert report metadata into the database
         db.reports.insert_one({
             "report_id": report_id,
             "status": "Complete",
