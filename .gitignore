@@ -1,0 +1,67 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+
+# VSCode and PyCharm settings (optional but common)
+.vscode/
+.idea/
+
+# Test coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+
+# Logs
+*.log
+
+# Python egg metadata
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environment variable files
+.env
+.env.*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Requirements typo (in case you actually meant `.txt`)
+*.tsx
+
+# MyPy & Pyright
+.mypy_cache/
+.pyright/
+
+# Pytest
+.cache/
+
+# Jupyter Notebooks (if any)
+.ipynb_checkpoints/
+
+# SQLite or other local DBs
+*.sqlite3
+*.db
+
+# Lock files
+poetry.lock
+Pipfile.lock
